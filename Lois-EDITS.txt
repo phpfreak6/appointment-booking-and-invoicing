@@ -1,0 +1,1055 @@
+
+### 9 rename Wordpress Menu Name - /termin/wp-content/plugins/appointment-booking/backend/Backend.php
+
+ if ( $current_user->has_cap( 'administrator' ) || Lib\Entities\Staff::query()->where( 'wp_user_id', $current_user->ID )->count() ) {
+            $dynamic_position = '80.0000001' . mt_rand( 1, 1000 ); // position always is under `Settings`
+            add_menu_page( 'Bookly', 'Terminkalender', 'read', 'bookly-menu', '',
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+########## 1. lib/UserBookingData.php --- search for email or phone or name
+public function save( $payment_id = null )
+    {
+        $user_id  = get_current_user_id();
+        $customer = new Entities\Customer();
+        if ( $user_id > 0 ) {
+            // Try to find customer by WP user ID.
+            $customer->loadBy( array( 'wp_user_id' => $user_id ) );
+        }
+        if ( ! $customer->isLoaded() ) {
+            // If customer with such name & e-mail exists, append new booking to him, otherwise - create new customer
+            $customer->loadBy( array(
+                'name'  => $this->get( 'name' ),
+                'email' => $this->get( 'email' ),
+            ) );
+			// LOIS - EDIT - If customer with such name & e-mail not found search only with MAIL
+			if( empty($customer->get('id'))  ){
+				$customer->loadBy( array(
+					'email' => $this->get( 'email' )
+					) );
+			}
+			
+			// LOIS - EDIT - If customer with such name & e-mail not found search only with PHONE
+			if( empty($customer->get('id')) ){
+				$customer->loadBy( array(
+					'phone' => $this->get( 'phone' ),
+				) );
+			}
+			// LOIS - EDIT - If customer with such name & e-mail not found search only with NAME
+			if( empty($customer->get('id')) ){
+				$customer->loadBy( array(
+					'name' => $this->get( 'name' ),
+				) );
+			}
+        }
+...........................................
+		
+		//EDIT - Save UID in cookie to load it afterwards
+		if( !empty($customer->get('id')) ){
+			setcookie("bookUID", $customer->get('id'), time() + (86400 * 60), "/"); // 86400 = 1 day
+		}
+        return $this->cart->save( $customer, $payment_id, $this->get( 'time_zone_offset' ), $this->booking_numbers );
+    }
+	
+	
+###### 1. lib/UserBookingData.php ---  Load Cookie if available
+ public function __construct( $form_id )
+    {
+        $this->form_id = $form_id;
+        $this->cart    = new Cart( $this );
+        $this->chain   = new Chain();
+
+        // If logged in then set name, email and if existing customer then also phone.
+        $current_user = wp_get_current_user();
+        if ( $current_user && $current_user->ID ) {
+            $customer = new Entities\Customer();
+            if ( $customer->loadBy( array( 'wp_user_id' => $current_user->ID ) ) ) {
+                $this->set( 'name',  $customer->get( 'name' ) );
+                $this->set( 'email', $customer->get( 'email' ) );
+                $this->set( 'phone', $customer->get( 'phone' ) );
+            } else {
+                $this->set( 'name',  $current_user->display_name );
+                $this->set( 'email', $current_user->user_email );
+            }
+        }
+		//LOIS EDIT - Load Cookie to load pre data
+		if(!empty($_COOKIE["bookUID"]) ){
+			$customer = new Entities\Customer();
+			$customer->loadBy( array('id' => $_COOKIE["bookUID"]	) );
+			if( !empty($customer->get('id'))  ){
+                $this->set( 'name',  $customer->get( 'name' ) );
+                $this->set( 'email', $customer->get( 'email' ) );
+                $this->set( 'phone', $customer->get( 'phone' ) );
+			}
+		}
+    }
+	
+	
+### 5.1 Remove Delete Button no get Paramter is set - to prevent user from deleting Appointment
+---/appointment-booking/backend/modules/calendar/resources/js/calander.js
+appointment-booking\backend\modules\calendar\resources\js\calendar-common.js
+           // Event Rendering.
+            eventRender: function (calEvent, $event, view) {
+                var body = '';
+                if ((obj.options.l10n.recurring_appointments.enabled == '1') && calEvent.series_id) {
+                    body += '<a class="bookly-show-series dashicons dashicons-admin-links" title="' + obj.options.l10n.recurring_appointments.title + '"></a>';
+                }
+				
+				
+				var getUrlParameter = function getUrlParameter(sParam) {
+					var sPageURL = decodeURIComponent(window.location.search.substring(1)),
+						sURLVariables = sPageURL.split('&'),
+						sParameterName,
+						i;
+
+					for (i = 0; i < sURLVariables.length; i++) {
+						sParameterName = sURLVariables[i].split('=');
+
+						if (sParameterName[0] === sParam) {
+							return sParameterName[1] === undefined ? true : sParameterName[1];
+						}
+					}
+				};
+				// LOIS EDIT added IF condition
+				if(	getUrlParameter('isadmin') == 1 )
+					body += '<a class="bookly-delete-event dashicons dashicons-trash" title="' + obj.options.l10n.delete + '"></a>';
+
+					
+### 5.2 removed Delete Button from Customer
+/termin/wp-content/plugins/appointment-booking/backend/modules/calendar/templates/_appointment_dialog.php
+
+									<?php if( isset($_GET["isadmin"])  && $_GET["isadmin"] == 1) { ?>
+                                    <a ng-click="removeCustomer(customer)" class="glyphicon glyphicon-trash text-danger bookly-margin-left-sm" href="#"
+                                       popover="<?php esc_attr_e( 'Remove customer', 'bookly' ) ?>"></a>									   
+									<?php } ?>
+									
+### 6 redirect verify cancel - /termin/wp-content/plugins/appointment-booking/frontend/modules/booking/controller.php
+    public function executeCancelAppointment()
+    {
+        $customer_appointment = new Lib\Entities\CustomerAppointment();
+
+		// LOIS Added to do double opt out verfication
+        if ( !isset( $_GET['2check'] ) ) {
+			$url = "http://lernfamilie.at/verify-cancel/?token=".$_GET['token'];
+            wp_redirect( $url );
+            $this->render( 'redirection', compact( 'url' ) );
+            exit;
+        }
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+	
+### 4 ADDED Value in Table model of service /termin/wp-content/plugins/appointment-booking/lib/entities/service
+protected static $schema = array(
+        'id'            => array( 'format' => '%d' ),
+        'category_id'   => array( 'format' => '%d', 'reference' => array( 'entity' => 'Category' ) ),
+        'title'         => array( 'format' => '%s' ),
+        'duration'      => array( 'format' => '%d', 'default' => 900 ),
+        'price'         => array( 'format' => '%.2f', 'default' => '0' ),
+        'color'         => array( 'format' => '%s' ),
+        'capacity'      => array( 'format' => '%d', 'default' => '1' ),
+        'padding_left'  => array( 'format' => '%d', 'default' => '0' ),
+        'padding_right' => array( 'format' => '%d', 'default' => '0' ),
+        'existing_appointment' => array( 'format' => '%s' , 'default' => '0' ),
+        'info'          => array( 'format' => '%s' ),
+        'type'          => array( 'format' => '%s', 'default' => 'simple' ),
+        'sub_services'  => array( 'format' => '%s', 'default' => '[]' ),
+        'start_time'    => array( 'format' => '%s' ),
+        'end_time'      => array( 'format' => '%s' ),
+        'visibility'    => array( 'format' => '%s', 'default' => 'public' ),
+        'position'      => array( 'format' => '%d', 'default' => 9999 ),
+    );
+	
+	
+public function save()
+    {
+        $return = parent::save();
+        if ( $this->isLoaded() ) {
+            // Register string for translate in WPML.
+            do_action( 'wpml_register_single_string', 'bookly', 'service_' . $this->get( 'id' ), $this->get( 'title' ) );
+            do_action( 'wpml_register_single_string', 'bookly', 'service_' . $this->get( 'id' ) . '_info', $this->get( 'info' ) );
+            do_action( 'wpml_register_single_string', 'bookly', 'service_' . $this->get( 'id' ) . '_existing_appointment', $this->get( 'existing_appointment' ) );
+        }
+
+        return $return;
+    }
+	
+### 4 Added field in FOrm Template /termin/wp-content/plugins/appointment-booking/backend/modules/services/forms/service.php
+    public function configure()
+    {
+        $fields = array(
+            'id',
+            'title',
+            'duration',
+            'price',
+            'category_id',
+            'color',
+            'capacity',
+            'padding_left',
+            'padding_right',
+			'existing_appointment',
+            'info',
+            'type',
+            'sub_services',
+            'visibility',
+        );
+### 4.1. added in template JS load /termin/wp-content/plugins/appointment-booking/backend/modules/services/resources/js/service.js
+   function submitServiceFrom($form, update_staff) {
+        $form.find('input[name=update_staff]').val(update_staff ? 1 : 0);
+        var ladda = Ladda.create($form.find('button[type=submit]').get(0)),
+            data = $form.serializeArray();
+        ladda.start();
+        if ($form.find('input[name=type]:checked').val() == 'compound') {
+            $form.find('li[data-sub-service-id]').each(function () {
+                data.push({name: 'sub_services[]', value: $(this).data('sub-service-id')});
+            });
+        } else {
+            data.push({name: 'type', value: 'simple'});
+            data.push({name: 'sub_services[]', value: false});
+        }
+        if( $form.find('input[name=existing_appointment]').prop('checked'))
+        {
+            data.push({name: 'existing_appointment', value: "1"});
+        } else {
+			data.push({name: 'existing_appointment', value: "0"});
+        }
+		
+###### 4.2 added in php List --- /termin/wp-content/plugins/appointment-booking/backend/modules/services/templates/_list.php
+
+                            <div class="row">
+                                <div class="col-md-12 col-sm-12">
+                                    <div class="form-group">
+                                        <label for="existing_appointment_<?php echo $service_id ?>">
+                                           <input name="existing_appointment" value="1" id="existing_appointment_<?php echo $service_id ?>" type="checkbox" <?php echo ($service['existing_appointment'])? "checked": ""; ?> >
+                                      <?php _e( ' Use existing appointment ', 'bookly' ) ?>
+                                    </label>
+                                    </div>
+                                </div>
+                            </div>
+							
+                            <div class="form-group">
+                                <label for="info_<?php echo $service_id ?>">
+                                    <?php _e( 'Info', 'bookly' ) ?>
+							
+							
+#### 4.3. added condition in controller slot to show only existings appointment - /termin/wp-content/plugins/appointment-booking/lib/slots
+
+            foreach ( $this->_findFrames() as $frame ) {
+                // Loop from start to:
+                //   1. end minus time slot length when 'blocked' or 'not_full' is set.
+                //   2. end minus service duration when nothing is set.
+                $end = null;
+				// LOIS EDIT - if service has use existing appointment it skips not full date/time
+				if($this->service->get( 'existing_appointment' ) == 1){
+					if( !isset($frame['not_full']) && $frame['not_full'] != 1)
+						continue;
+				}
+                if ( isset ( $frame['blocked'] ) || isset ( $frame['not_full'] ) ) {
+                    $end = $frame['end'] - $this->time_slot_length;
+			
+### 4.4 added condition to show also services which are not in the normal working hour of the staff membor - - /termin/wp-content/plugins/appointment-booking/lib/slots
+
+            // Find schedule for this day.
+            $schedule = null;
+            if ( isset ( $staff['special_days'][ $date_Ymd ] ) ) {
+                $schedule = $staff['special_days'][ $date_Ymd ];
+            }
+            if (  $this->service->get( 'existing_appointment' ) == 1     // use existing appointment ignore service time
+				) {
+                $schedule = array("start_time" => 0, "end_time" => 72000, "breaks" => Array () );
+            }
+
+           /* if ( $schedule ) { 
+                if ( $this->is_all_day_service || $this->service->get( 'existing_appointment' ) == 1 ) {
+                    // For whole day services do not check staff working hours. 
+                    $intersections = array( array(
+                        'start' => 0,
+                        'end'   => DAY_IN_SECONDS,
+                    ) );
+		*/
+
+		
+		
+
+
+### 7 addded customer fields in Template - /termin/wp-content/plugins/appointment-booking/backend/modules/customers/templates/_customer_dialog.php
+
+
+### 7.1 added customer fields in controller - 
+        $data = array();
+        foreach ( $query->fetchArray() as $row ) {
+            $data[] = array(
+                'id'                 => $row['id'],
+                'name'               => $row['name'],
+                'wp_user'            => $row['wp_user'],
+                'wp_user_id'         => $row['wp_user_id'],
+                'phone'              => $row['phone'],
+                'email'              => $row['email'],
+                'parent_phone'              => $row['parent_phone'],
+                'student_email'              => $row['student_email'],
+                'parent_name'              => $row['parent_name'],
+                'street'              => $row['street'],
+                'zipcode'              => $row['zipcode'],
+                'city'              => $row['city'],
+                'school'              => $row['school'],
+                'schoolyear'              => $row['schoolyear'],
+                'schoollevel'              => $row['schoollevel'],
+                'weekmo'              => $row['weekmo'],
+                'weekdi'              => $row['weekdi'],
+                'weekmi'              => $row['weekmi'],
+                'weekdo'              => $row['weekdo'],
+                'weekfr'              => $row['weekfr'],
+                'mandant'              => $row['mandant'],
+                'notes'              => $row['notes'],
+                'birthday'           => $row['birthday'],
+                'last_appointment'   => $row['last_appointment'] ? Lib\Utils\DateTime::formatDateTime( $row['last_appointment'] ) : '',
+                'total_appointments' => $row['total_appointments'],
+                'payments'           => Lib\Utils\Common::formatPrice( $row['payments'] ),
+            );
+		
+### 7.1.1 added custoemr fields in GEt and SAVE Method - /termin/wp-content/plugins/appointment-booking/lib/entities/customer.php
+
+                /** @var Lib\Entities\Customer $customer */
+                $customer = $form->save();
+                if ( $customer ) {
+                    $response['success']  = true;
+                    $response['customer'] = array(
+                        'id'         => $customer->get( 'id' ),
+                        'wp_user_id' => $customer->get( 'wp_user_id' ),
+                        'name'       => $customer->get( 'name' ),
+                        'phone'      => $customer->get( 'phone' ),
+                        'email'      => $customer->get( 'email' ),
+						'parent_phone' => $customer->get( 'parent_phone' ),
+						'student_email' => $customer->get( 'student_email' ),
+                        'parent_name' => $customer->get( 'parent_name' ),
+                        'street' => $customer->get( 'street' ),
+                        'zipcode' => $customer->get( 'zipcode' ),
+                        'city' => $customer->get( 'city' ),
+                        'school' => $customer->get( 'school' ),
+                        'schoolyear' => $customer->get( 'schoolyear' ),
+                        'schoollevel' => $customer->get( 'schoollevel' ),
+						'weekmo' => $customer->get( 'weekmo' ),
+						'weekdi' => $customer->get( 'weekdi' ),
+						'weekmi' => $customer->get( 'weekmi' ),
+						'weekdo' => $customer->get( 'weekdo' ),
+						'weekfr' => $customer->get( 'weekfr' ),
+						'mandant' => $customer->get( 'mandant' ),						
+                        'notes'   => $customer->get( 'notes' ),
+                        'birthday'   => $customer->get( 'birthday' ),
+
+### 7.2 added custoemr fields in JS - 
+
+                // Init properties.
+                var init = function() {
+                    // Form fields.
+                    if (!scope.form) {
+                        scope.form = {
+                            id         : '',
+                            wp_user_id : '',
+                            name       : '',
+                            phone      : '',
+                            email      : '',
+							parent_phone     : '',
+							student_phone     : '',
+							parent_name      : '',
+                            street      : '',
+                            zipcode      : '',
+                            city      : '',
+							school      : '',
+							schoolyear      : '',
+							schoollevel      : '',
+							weekmo      : '',
+							weekdi      : '',
+							weekmi      : '',
+							weekdo      : '',
+							weekfr      : '',
+							mandant      : '',
+                            notes      : '',
+                            birthday   : ''
+                        };
+                    }
+					
+			-----------------------------------------------------------
+
+                                    // Send new customer to the parent scope.
+                                    scope.callback({customer : response.customer});
+                                    scope.form = {
+                                        id         : '',
+                                        wp_user_id : '',
+                                        name       : '',
+                                        phone      : '',
+                                        email      : '',
+										parent_phone      : '',
+										student_email      : '',
+										parent_name      : '',
+                                        street      : '',
+										zipcode      : '',
+										city      : '',
+										school      : '',
+										schoolyear      : '',
+										schoollevel      : '',
+										weekmo      : '',
+										weekdi      : '',
+										weekmi      : '',
+										weekdo      : '',
+										weekfr      : '',
+										mandant      : '',
+                                        notes      : '',
+                                        birthday   : ''
+                                    };
+
+### 7.3 added customer fields in form php - /termin/wp-content/plugins/appointment-booking/backend/modules/customers/forms/customer.php
+
+    public function configure()
+    {
+        $this->setFields( array(
+            'id',
+            'wp_user_id',
+            'name',
+            'phone',
+            'email',
+            'parent_name',
+            'street',
+            'zipcode',			
+            'city',
+            'parent_phone',
+            'school',
+            'schoolyear',
+            'schoollevel',
+            'weekmo',
+            'weekdi',
+            'weekmi',
+            'weekdo',
+            'weekfr',
+            'mandant',
+            'notes',
+            'birthday',
+        ) );
+    }
+
+### 7.4 added customer fields in customer JS - /termin/wp-content/plugins/appointment-booking/backend/modules/customers/resources/js/customer.js
+
+### 7.5 added customer fields in entity - /termin/wp-content/plugins/appointment-booking/lib/entities/customer.php
+
+
+    protected static $schema = array(
+        'id'         => array( 'format' => '%d' ),
+        'wp_user_id' => array( 'format' => '%d' ),
+        'name'       => array( 'format' => '%s', 'default' => '' ),
+        'phone'      => array( 'format' => '%s', 'default' => '' ),
+        'email'      => array( 'format' => '%s', 'default' => '' ),
+        'parent_phone'      => array( 'format' => '%s', 'default' => '' ),
+        'student_email'      => array( 'format' => '%s', 'default' => '' ),
+        'parent_name'      => array( 'format' => '%s', 'default' => '' ),
+        'street'      => array( 'format' => '%s', 'default' => '' ),
+        'zipcode'      => array( 'format' => '%s', 'default' => '' ),
+        'city'      => array( 'format' => '%s', 'default' => '' ),
+        'school'      => array( 'format' => '%s', 'default' => '' ),
+        'schoolyear'      => array( 'format' => '%s', 'default' => '' ),
+        'schoollevel'      => array( 'format' => '%s', 'default' => '' ),
+        'weekmo'      => array( 'format' => '%s', 'default' => '' ),
+        'weekdi'      => array( 'format' => '%s', 'default' => '' ),
+        'weekmi'      => array( 'format' => '%s', 'default' => '' ),
+        'weekdo'      => array( 'format' => '%s', 'default' => '' ),
+        'weekfr'      => array( 'format' => '%s', 'default' => '' ),
+        'mandant'      => array( 'format' => '%s', 'default' => '' ),
+        'notes'      => array( 'format' => '%s', 'default' => '' ),
+        'birthday'   => array( 'format' => '%s' ),
+    );
+
+### 8.1 added staff fields in php template - /termin/wp-content/plugins/appointment-booking/backend/modules/staff/templates/edit.php
+
+
+### 8.2 added staff fields in php entity - /termin/wp-content/plugins/appointment-booking/lib/entities/staff.php
+
+### 8.3 added staff fields in php entity - /termin/wp-content/plugins/appointment-booking/backend/modules/staff/forms/StaffMemberEdit.php
+
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+### 10 added Create invoice Button - /termin/wp-content/plugins/appointment-booking/backend/modules/customers/resources/js/customer.js
+
+        columns: [
+            { data: 'id', render: $.fn.dataTable.render.text() },
+            { data: 'name', render: $.fn.dataTable.render.text() },
+            { data: 'wp_user', render: $.fn.dataTable.render.text() },
+            { data: 'phone', render: $.fn.dataTable.render.text() },
+            { data: 'email', render: $.fn.dataTable.render.text() },
+            { data: 'notes', render: $.fn.dataTable.render.text() },
+            { data: 'last_appointment' },
+            { data: 'total_appointments' },
+            { data: 'payments' },
+            {
+                responsivePriority: 1,
+                orderable: false,
+                searchable: false,
+                render: function ( data, type, row, meta ) {
+                    return '<button type="button" class="btn btn-default" data-toggle="modal" data-target="#bookly-customer-dialog"><i class="glyphicon glyphicon-edit"></i> ' + BooklyL10n.edit + '</button> <br/><a href="/_hidden/_invoice_create.php?cid='+row.id+'&forcecreate=true" title="Rechnung generieren" target="_blank">Rechnung generieren</a>'; 
+					return '<button type="button" class="btn btn-default" data-toggle="modal" data-target="#bookly-customer-dialog"><i class="glyphicon glyphicon-edit"></i> ' + BooklyL10n.edit + '</button>';
+                }
+            },
+
+### 10.1 add field in template list - /termin/wp-content/plugins/appointment-booking/backend/modules/customers/templates/index.php
+ <table id="bookly-customers-list" class="table table-striped" width="100%">
+	<thead>
+		<tr>
+			<th>ID</th>
+			<th><?php echo \Bookly\Lib\Utils\Common::getTranslatedOption( 'bookly_l10n_label_name' ) ?></th>
+			<th><?php _e( 'User', 'bookly' ) ?></th> 
+
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+			
+
+
+### 2.1 - .1 add button chat customer details to calender  - appointment-booking\backend\modules\calendar\templates\_appointment_dialog.php
+                            <p class="text-success" ng-show=form.service my-slide-up="form.service.capacity_min > 1 && form.service.capacity_min > dataSource.getTotalNumberOfPersons()">
+                                <?php _e( 'Minimum capacity', 'bookly' ) ?>: {{form.service.capacity_min}}
+                            </p>
+                            <ul class="bookly-flexbox">
+                                <li ng-repeat="customer in form.customers" id="customerLists" class="bookly-flex-row">
+<!-- CHANGED - EDIT to show customer data and List --> 
+<button type="button" class="btn btn-default editCustPro" data-toggle="modal" data-target="#bookly-customer-dialog" id="editDetailcustomer" rel="{{ customer.id }}"><i class="glyphicon glyphicon-user"></i></button> 
+<button type="button" class="btn btn-default" data-toggle="modal" data-target="#bookly-notes-dialog" id="chatCustomer" rel="{{ customer.id }}"><i class="glyphicon glyphicon-list"></i></button>
+<!-- CHANGED - EDIT to show customer data and List --> 
+
+......................................................
+    <?php $this->render( '_customer_details_dialog', compact( 'custom_fields' ) ) ?>
+    <?php \Bookly\Backend\Modules\Customers\Components::getInstance()->renderCustomerDialog() ?>
+    <?php \Bookly\Backend\Modules\Payments\Components::getInstance()->renderPaymentDetailsDialog() ?>
+	<!-- chat history dailog box -->
+<div id="bookly-notes-dialog" class="modal fade" tabindex=-1 role="dialog">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <button type="button" class="close" data-dismiss="modal" aria-hidden="true">&times;</button>
+                <div class="modal-title h2"><?php _e( 'Chat History', 'bookly' ) ?></div>
+            </div>
+            <div ng-show=loading class="modal-body">
+                <div class="bookly-loading"></div>
+            </div>
+            <div class="modal-body" ng-hide="loading">
+				<div id="chatLi"></div>
+            </div>
+        </div>
+    </div>
+</div>
+	<!-- chat history dailog box -->
+</div>
+			
+### 2.1 - .2 add button chat customer details to calender - appointment-booking\backend\modules\customers\resources\js\ng-customer_dialog.js
+	/**
+	 * Send form to server.
+	 */
+	scope.processForm = function() {
+		scope.errors  = {};
+		scope.loading = true;
+		scope.form.phone = BooklyL10nCustDialog.intlTelInput.enabled
+			? element.find('#phone').intlTelInput('getNumber')
+			: element.find('#phone').val();
+		scope.form.id = element.find('#cid').val(); //ADDED !!
+		scope.form.name = element.find('#username').val();
+		scope.form.email = element.find('#email').val();
+		scope.form.notes = element.find('#notes').val();
+		scope.form.birthday = element.find('#birthday').val();
+		jQuery.ajax({
+...............................
+	response.customer.status = BooklyL10nCustDialog.default_status;
+	// Send new customer to the parent scope.
+	jQuery(".editCustPro").each(function(){
+		if(jQuery(this).attr('rel') == response.customer.id){
+			jQuery(this).parent().css('display','none');
+		}
+	});
+
+
+### 2.1 - .3 add button chat customer details to calender - appointment-booking\backend\modules\appointments\resources\js\appointments.js
+   /**
+     * Add appointment.
+     */
+    $add_button.on('click', function () {
+        showAppointmentDialog(
+            null,
+            null,
+            moment(),
+            function(event) {
+                dt.ajax.reload();
+            }
+        )
+    });
+	
+	/**
+	 * Show customer detail in edit modal
+	 */
+	$('body').on('click','#editDetailcustomer', function(e){
+		e.preventDefault();
+		var id = $(this).attr('rel');
+		$.ajax({
+            url  : ajaxurl,
+            type : 'POST',
+            data : {
+                action     : 'editdetailcustomer',
+                csrf_token : BooklyL10n.csrf_token,
+                data       : id
+            },
+            dataType : 'json',
+            success  : function(response) {
+				if(response[0]){
+					$("#wp_user").append('<option selected="selected" value="'+response[0].id	+'">'+response[0].name+'</option>');
+					$("#cid").val(response[0].id);
+					$("#username").val(response[0].name);
+					$("#email").val(response[0].email);
+					$("#phone").val(response[0].phone);
+					$("#notes").val(response[0].notes);
+					$("#birthday").val(response[0].birthday);
+				}
+            }
+        });
+	});
+		/**
+	 * Show customer chat in chat modal
+	 */
+	$('body').on('click','#chatCustomer', function(e){
+		e.preventDefault();
+		var id = $(this).attr('rel');
+		$.ajax({
+            url  : ajaxurl,
+            type : 'POST',
+            data : {
+                action     : 'chat_history',
+                csrf_token : BooklyL10n.csrf_token,
+                data       : id
+            },
+            dataType : 'json',
+            success  : function(response) {
+				$("#chatLi").html('');
+				response.forEach(function (s, i, o) {
+					$("#chatLi").append('<div><strong>Appointment Date:</strong> '+s.appointment_date+' &nbsp; - &nbsp; <strong>Staff Name:</strong> '+s.staff_name+'<br/><strong>Service:</strong>'+s.title+'<br/><strong>Text:</strong>'+s.text+'<hr/></div>')
+				});
+            }
+        });
+	});
+
+
+
+### 2.1 - .4 add button chat customer details to calender - /appointment-booking\main.php
+add_action( 'wp_ajax_editdetailcustomer', 'editdetailcustomer' );
+add_action( 'wp_ajax_nopriv_editdetailcustomer', 'editdetailcustomer' );
+
+function editdetailcustomer(){
+	
+	global $wpdb;
+	if(isset($_REQUEST['data'])){
+		$id = $_REQUEST['data'];
+		$pfx = $wpdb->prefix;
+		
+		$user_info = $wpdb->get_results( "Select * from ".$pfx."ab_customers where id=$id" );
+		echo json_encode($user_info);
+		exit;
+	}else{
+		return false;
+	}
+}
+
+add_action( 'wp_ajax_chat_history', 'chat_history' );
+add_action( 'wp_ajax_nopriv_chat_history', 'chat_history' );
+
+function chat_history(){
+	global $wpdb;
+	if(isset($_REQUEST['data'])){
+		$id = $_REQUEST['data'];
+		$pfx = $wpdb->prefix;
+		$chat_result = $wpdb->get_results( "SELECT a.start_date as appointment_date, s.full_name as staff_name, ca.custom_fields as json_query, ser.title, ser.color
+		FROM `".$pfx."ab_customer_appointments` as ca
+		INNER JOIN ".$pfx."ab_appointments as a
+		ON a.id = ca.`appointment_id`
+		INNER JOIN ".$pfx."ab_staff as s
+		ON a.staff_id = s.id
+		INNER JOIN wp_ab_services as ser
+		ON ser.id = a.service_id
+		WHERE ca.customer_id = $id
+		ORDER BY a.start_date" );
+		foreach($chat_result as $rkey => $row){
+			$json_data = json_decode($row->json_query);
+			foreach($json_data as $jkey => $jdata){
+				if(isset($jdata->id) && intval($jdata->id) == 1){
+					$chat_result[$rkey]->text = $jdata->value;
+				}
+			}
+		} 
+		echo json_encode($chat_result);
+		exit;
+	}else{
+		return false;
+	}
+}
+
+### 2.1 - .5 add button chat customer details to calender - appointment-booking\backend\modules\customers\templates\_customer_dialog.php
+
+                    <label for="wp_user"><?php _e( 'User', 'bookly' ) ?></label>
+                    <input class="form-control" type="hidden" ng-model="form.id" id="cid" />
+                    <select ng-model="form.wp_user_id" class="form-control" id="wp_user">
+                        <option value=""></option>
+
+### 2.1 - .6 add button chat customer details to calender - appointment-booking\backend\modules\calendar\resources\js\calender.js
+	
+	/**
+	 * Show customer detail in edit modal
+	 */
+	$('body').on('click','#editDetailcustomer', function(e){
+		e.preventDefault();
+		var id = $(this).attr('rel');
+		$.ajax({
+            url  : ajaxurl,
+            type : 'POST',
+            data : {
+                action     : 'editdetailcustomer',
+                csrf_token : BooklyL10n.csrf_token,
+                data       : id
+            },
+            dataType : 'json',
+            success  : function(response) {
+				if(response[0]){
+					$("#wp_user").append('<option selected="selected" value="'+response[0].id	+'">'+response[0].name+'</option>');
+					$("#cid").val(response[0].id);
+					$("#username").val(response[0].name);
+					$("#email").val(response[0].email);
+					$("#phone").val(response[0].phone);
+					$("#notes").val(response[0].notes);
+					$("#birthday").val(response[0].birthday);
+				}
+            }
+        });
+	});
+	
+	/**
+	 * Show customer chat in chat modal
+	 */
+	$('body').on('click','#chatCustomer', function(e){
+		e.preventDefault();
+		var id = $(this).attr('rel');
+		$.ajax({
+            url  : ajaxurl,
+            type : 'POST',
+            data : {
+                action     : 'chat_history',
+                csrf_token : BooklyL10n.csrf_token,
+                data       : id
+            },
+            dataType : 'json',
+            success  : function(response) {
+	/**
+	 * Show customer chat in chat modal
+	 */
+	$('body').on('click','#chatCustomer', function(e){
+		e.preventDefault();
+		var id = $(this).attr('rel');
+		$.ajax({
+            url  : ajaxurl,
+            type : 'POST',
+            data : {
+                action     : 'chat_history',
+                csrf_token : BooklyL10n.csrf_token,
+                data       : id
+            },
+            dataType : 'json',
+            success  : function(response) {
+	/**
+	 * Show customer chat in chat modal
+	 */
+	$('body').on('click','#chatCustomer', function(e){
+		e.preventDefault();
+		var id = $(this).attr('rel');
+		$.ajax({
+            url  : ajaxurl,
+            type : 'POST',
+            data : {
+                action     : 'chat_history',
+                csrf_token : BooklyL10n.csrf_token,
+                data       : id
+            },
+            dataType : 'json',
+            success  : function(response) {
+				$("#chatLi").html('');
+				response.forEach(function (s, i, o) {
+					$("#chatLi").append('<div><strong>Appointment Date:</strong> '+s.appointment_date+' &nbsp; - &nbsp; <strong>Staff Name:</strong> '+s.staff_name+'<br/><strong>Service:</strong>'+s.title+'<br/><strong>Text:</strong>'+s.text+'<hr/></div>')
+				});
+            }
+        });
+	});
+	
+	
+##############################################################
+### 2.1 - R.1 Added code for menu in - /appointment-booking/backend/Backend.php
+##############################################################
+
+        $this->couponsController       = Modules\Coupons\Controller::getInstance();
+        $this->invoiceController       = Modules\Invoices\Controller::getInstance();       // added for invoice menu
+........................................
+                $settings       = __( 'Settings',      'bookly' );
+				$invoices 		= __( 'Invoice', 	   'bookly' ); 			//added for Invoice menu
+........................................
+                add_submenu_page( 'bookly-menu', $custom_fields, $custom_fields, 'manage_options',
+                    Modules\CustomFields\Controller::page_slug, array( $this->customFieldsController, 'index' ) );
+					/* Custom code start for invoice menu */
+				add_submenu_page( 'bookly-menu', $invoices, $invoices, 'manage_options',
+									"bookly-invoices", array( $this->invoiceController, 'index' ) );
+					/* Custom code start for invoice menu */
+					
+					
+					
+### 2.1 - R.2 Added code for menu in - /appointment-booking\lib\entities\
+
+2) Created new module inside backend for Invoices.
+3) Added the sql data to create "ab_invoice", "ab_invoice_appointment" tables on activation.And also created files for database tables 
+Inside : plugins\appointment-booking\lib\entities
+	
+	
+
+### 2.1 - R.3 added the custom code for query plugins\appointment-booking\lib\Query.php 165-186
+
+    /**
+     * Custom Left join another entity.
+     *
+     * @param string $entity
+     * @param string $alias
+     * @param string $on
+     * @param string $namespace
+     * @return $this
+     */
+    public function CustomtableJoin( $entity, $alias, $on, $namespace = null )
+    {
+        $entity = ( $namespace ?: $this->namespace ) . '\\' . $entity;
+
+        $this->joins[ $alias ] = array(
+            'table'  => call_user_func( array( $entity, 'getTableName' ) ),
+            'schema' => call_user_func( array( $entity, 'getSchema' ) ),
+            'on'     => $on,
+            'type'   => 'LEFT'
+        );
+
+        return $this;
+    }
+    /**
+     * Inner join another entity.
+     *
+	 
+	.................................
+	
+    /**
+     * Delete entity from database.
+     *
+     * @return bool|false|int
+     */
+    public function delete($key = 'id')
+    {
+        if ( $this->fields[$key] ) {
+		
+		
+### 2.1 - R.4 /lib/base/entity.php - changed function of load and delete
+		
+    public function load( $id, $key ="id" )
+    {
+        return $this->loadBy( array( $key => $id ) );
+    }
+..........................................
+    public function delete($key = 'id')
+    {
+        if ( $this->fields[$key] ) {
+            // Delete from cache.
+            unset( static::$cache[ $this->fields[$key] ] );
+            return $this->wpdb->delete( $this->table_name, array( $key => $this->fields[$key] ), array( '%d' ) );
+        }
+
+        return false;
+    }
+	
+	
+
+### 2.1 - R.4 plugins\appointment-booking/main.php - Added new function to show view invoice page on main.php (Line no 13)
+// LOIS CHANGED
+add_shortcode( 'show_bookly_invoice', 'view_invoices' );
+ add_filter( 'page_template', 'wp_page_template' );
+    function wp_page_template( $page_template )
+    {
+        if ( is_page( 'invoice' ) ) {
+            $page_template = plugin_dir_path( __FILE__ ) . 'template/view_invoice.php';
+        }
+        return $page_template;
+    }
+
+function view_invoices( $atts ){
+		if ( isset ( $_GET['no'] ) && $_GET['no'] != '' ) {
+		    global $wpdb;
+				 $query = "SELECT i.id as invoice_id, i.*,wc.*,wc.name as customer_name,ip.*,ip.name as position_name 
+				 FROM ".$wpdb->prefix."ab_invoice AS `i` 
+				 LEFT JOIN ".$wpdb->prefix."ab_customers AS `wc` 
+					ON wc.id = i.customer_id 
+				 LEFT JOIN ".$wpdb->prefix."ab_invoice_appointment AS `ip` 
+					ON ip.aid = i.id 
+				 WHERE i.bill_no='".$_GET['no']."'"; 
+				$results = $wpdb->get_results($query);
+				require_once plugin_dir_path( dirname( __FILE__ ) ) . 'appointment-booking/frontend/invoices.php';
+			 }
+}
+// LOIS CHANGED
+
+
+if ( version_compare( PHP_VERSION, '5.3.7', '<' ) ) {
+
+
+### 2.1 - R.5 plugins\appointment-booking/main.php - Added new function to show view invoice page on main.php (Line no 13)
+appointment-booking/frontend/invoices.php
+Added new file to invoices.php
+		
+		
+### 2.1 - R.6 appointment-booking/lib/installer.php
+Added the code for Line no 779 to 849 to create tables on activate and create invoice page for front end
+
+
+	$tabledata1 =	 $wpdb->query(
+            'CREATE TABLE IF NOT EXISTS `' . Entities\Customer::getTableName() . '` (
+                `id`         INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+                `wp_user_id` BIGINT(20) UNSIGNED,
+                `name`       VARCHAR(255) NOT NULL DEFAULT "",
+                `phone`      VARCHAR(255) NOT NULL DEFAULT "",
+                `email`      VARCHAR(255) NOT NULL DEFAULT "",
+                `notes`      TEXT NOT NULL DEFAULT "",
+                `birthday`   DATE
+            ) ENGINE = INNODB
+            DEFAULT CHARACTER SET = utf8
+            COLLATE = utf8_general_ci'
+        );
+//LOIS CHANGED
+		$wpdb->query(
+           "CREATE TABLE IF NOT EXISTS `" . Entities\Invoice::getTableName() . "`(
+				`id` int(12) NOT NULL AUTO_INCREMENT,
+				`bill_no` varchar(25) CHARACTER SET utf8 NOT NULL,
+				`customer_id` int(11) NOT NULL,
+				`bill_date` date NOT NULL,
+				`amount` decimal(7,2) NOT NULL DEFAULT '0.00',
+				`payed` tinyint(1) unsigned NOT NULL DEFAULT '0',
+				`mandant` varchar(50) CHARACTER SET utf8 NOT NULL,
+				`comment` text NOT NULL,
+				`send_mail` datetime DEFAULT NULL,
+				`send_sms` datetime DEFAULT NULL,
+				`send_post` datetime DEFAULT NULL,
+				`first_openend` timestamp NULL DEFAULT NULL,
+				`token` varchar(255) NOT NULL DEFAULT '',
+				PRIMARY KEY (`id`),
+				UNIQUE KEY `bill_no` (`bill_no`,`mandant`),
+				KEY `customer_id` (`customer_id`)
+				) ENGINE=MyISAM DEFAULT CHARSET=latin1 AUTO_INCREMENT=1;"
+        );
+		
+		$wpdb->query(
+           "CREATE TABLE IF NOT EXISTS `" . Entities\InvoiceAppointment::getTableName() . "` (
+				`id` int(15) NOT NULL AUTO_INCREMENT,
+				`ca_id` int(15) DEFAULT NULL,
+				`start_date` datetime NOT NULL,
+				`end_date` datetime NOT NULL,
+				`price` decimal(10,4) NOT NULL,
+				`qty` int(15) NOT NULL,
+				`aid` int(15) NOT NULL,
+				`name` varchar(155) NOT NULL,
+				`typ` varchar(150) NOT NULL,
+				`payed_amount` decimal(6,2) NOT NULL DEFAULT '0.00',
+				`payed_date` datetime NOT NULL,
+				PRIMARY KEY (`id`),
+				KEY `aid` (`aid`)
+				) ENGINE=MyISAM DEFAULT CHARSET=latin1 AUTO_INCREMENT=1 ;"
+        );
+		$wpdb->query(
+           "CREATE TABLE IF NOT EXISTS `" . Entities\Comments::getTableName() . "` (
+			  `id` int(11) NOT NULL AUTO_INCREMENT,
+			  `customer_id` int(11) NOT NULL,
+			  `created_at` date NOT NULL,
+			  `comment` varchar(500) NOT NULL,
+			  PRIMARY KEY (`id`),
+			  KEY `id` (`id`)
+			) ENGINE=MyISAM DEFAULT CHARSET=latin1 AUTO_INCREMENT=1 ;"
+        );
+		
+		/* to create invoice page automactically on install start */
+		$post_data = array(
+			'post_title' => 'Invoice',
+			'post_content' => "[show_bookly_invoice]",
+			'post_type' => 'page',
+			'post_status' => 'publish'
+		);
+		wp_insert_post( $post_data );
+		/* to create invoice page automactically on install End */
+//LOIS CHANGED
+		
+		
+		
+### 2.1 - R.7  appointment-booking/lib/entities/comments.php - added the comments.php file to create table.
